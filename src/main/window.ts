@@ -1,10 +1,10 @@
 // Game window (stage 5). Created hidden; shown/force-focused when a card is inserted
 // and after exiting a game (R5: so that "press A" via the Gamepad API works in Electron).
-// We briefly raise alwaysOnTop to grab focus, then drop it.
+// When summoned over a running game, Windows blocks the foreground grab and would otherwise
+// leave the taskbar/Start visible and flash our taskbar icon — so we keep the window topmost
+// while visible (covers the taskbar), raise it to the top of the z-order, and cancel the flash.
 import path from 'node:path';
 import { BrowserWindow } from 'electron';
-
-const ALWAYS_ON_TOP_PULSE_MS = 600;
 
 export class GameWindow {
   private window: BrowserWindow | null = null;
@@ -48,21 +48,28 @@ export class GameWindow {
     return this.window;
   }
 
-  /** Shows the window and forces focus (an alwaysOnTop pulse) so the gamepad is read. */
+  /**
+   * Brings the launcher to the foreground (even over a running game) and focuses it so the
+   * gamepad is read. Stays topmost while visible so the Windows taskbar/Start doesn't show
+   * through; the attention flash (raised when Windows deflects the foreground grab) is cancelled.
+   */
   showAndFocus(): void {
     const window = this.window;
     if (window === null) return;
     if (window.isMinimized()) window.restore();
-    window.show();
+    if (!window.isVisible()) window.show();
+    if (!window.isFullScreen()) window.setFullScreen(true);
     window.setAlwaysOnTop(true);
+    window.moveTop();
     window.focus();
-    setTimeout(() => {
-      if (!window.isDestroyed()) window.setAlwaysOnTop(false);
-    }, ALWAYS_ON_TOP_PULSE_MS);
+    window.flashFrame(false);
   }
 
   hide(): void {
-    this.window?.hide();
+    const window = this.window;
+    if (window === null) return;
+    window.setAlwaysOnTop(false);
+    window.hide();
   }
 
   /** Allows the window to actually close (when quitting the app). */
