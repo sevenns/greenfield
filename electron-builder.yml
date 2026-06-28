@@ -1,0 +1,29 @@
+appId: com.personal.microsdgamelauncher
+productName: microSD Game Launcher
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the compiled JS, assets, and dependency manifests are included in the build.
+files:
+  - dist/**/*
+  - package.json
+
+# drivelist is a native module. electron-builder usually detects native code and
+# unpacks it from asar on its own, but we pin an explicit unpack so the .node binary is
+# available in the packaged build (verify on a real nsis/portable build — step 0/11 of the plan).
+asar: true
+asarUnpack:
+  - "**/node_modules/drivelist/**"
+
+win:
+  target:
+    - nsis
+    - portable
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

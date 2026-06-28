@@ -1,0 +1,33 @@
+{
+  "name": "microsd-game-launcher",
+  "version": "0.1.0",
+  "description": "Background Windows launcher that detects a microSD game card, syncs saves and tracks playtime, controllable by an Xbox gamepad.",
+  "private": true,
+  "main": "dist/main/main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "tsc -p tsconfig.renderer.json",
+    "build:assets": "node scripts/copy-assets.mjs",
+    "build": "npm run build:renderer && npm run build:main && npm run build:assets",
+    "start": "npm run build && electron .",
+    "rebuild": "electron-rebuild -f -w drivelist",
+    "dist": "npm run build && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "drivelist": "^12.0.2",
+    "fs-extra": "^11.2.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.14.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.0"
+  }
+}

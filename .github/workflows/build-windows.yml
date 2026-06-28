@@ -1,0 +1,49 @@
+name: Build Windows
+
+# Build the Windows distributable in the cloud: the windows runner has MSVC + Python,
+# so the native `drivelist` compiles normally (which is impossible on macOS).
+# Triggered manually (workflow_dispatch) or on pushing a v* tag.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # npm ci runs postinstall (electron-builder install-app-deps) — the runner
+      # has the toolchain, so drivelist will build for the right ABI.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Compile TypeScript + assets
+        run: npm run build
+
+      # --publish never: only build the artifacts, publish nothing.
+      - name: Package (nsis + portable)
+        run: npx electron-builder --win --publish never
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: microsd-game-launcher-windows
+          path: |
+            release/*.exe
+          if-no-files-found: error
+          retention-days: 14
