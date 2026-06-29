@@ -1,12 +1,13 @@
-<img src="icon.png" align="right" width="120" height="120" alt="Playhook icon">
-
-# Playhook
-
-**Bring console vibes to your PC.**
-
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white)](#building-from-source-for-developers)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Build Windows](https://github.com/sevenns/playhook/actions/workflows/build-windows.yml/badge.svg)](https://github.com/sevenns/playhook/actions/workflows/build-windows.yml)
+<div align="center">
+  <img src="icon.png" width="128" height="128" alt="Playhook icon">
+  <h1>Playhook</h1>
+  <p><strong>Bring console vibes to your PC.</strong></p>
+  <p>
+    <a href="#building-from-source-for-developers"><img src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white" alt="Platform"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+    <a href="https://github.com/sevenns/playhook/actions/workflows/build-windows.yml"><img src="https://github.com/sevenns/playhook/actions/workflows/build-windows.yml/badge.svg" alt="Build Windows"></a>
+  </p>
+</div>
 
 Playhook is a background Windows app that turns a removable drive into a console-style game
 cartridge. It lives in the tray, detects when you insert a card carrying a game (a `game.json`
