@@ -186,13 +186,22 @@ function buildInfoPanel(game: GameInfo): void {
 
 // ── Title slide (left → right while busy) ───────────────────────────────────
 
+let titleSlideRaf = 0;
 function applyTitleSlide(toRight: boolean): void {
+  // Cancel any pending measure: otherwise a busy-state rAF can fire AFTER we've returned to 'ready'
+  // (e.g. a launch that failed fast) and wrongly re-slide the title right. This was the stuck-title bug.
+  if (titleSlideRaf !== 0) {
+    cancelAnimationFrame(titleSlideRaf);
+    titleSlideRaf = 0;
+  }
   if (!toRight) {
     titleEl.style.setProperty('--title-x', '0px');
     return;
   }
   // Measure after layout so scrollWidth/offsetLeft are correct.
-  requestAnimationFrame(() => {
+  titleSlideRaf = requestAnimationFrame(() => {
+    titleSlideRaf = 0;
+    if (phaseOf(currentState) !== 'busy') return; // state changed before the frame — don't slide
     const shift = barContent.clientWidth - titleEl.scrollWidth - titleEl.offsetLeft;
     titleEl.style.setProperty('--title-x', `${Math.max(0, Math.round(shift))}px`);
   });
