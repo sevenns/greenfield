@@ -77,7 +77,10 @@ function readAcfString(content: string, key: string): string | null {
 type AcfState = {
   readonly fullyInstalled: boolean;
   readonly installdir: string | null;
+  // Candidate target sizes (any may be 0/absent during a download — we pick the first positive one).
   readonly sizeOnDisk: number | null;
+  readonly bytesToStage: number | null;
+  readonly bytesToDownload: number | null;
 };
 
 async function readAcfState(acfPath: string): Promise<AcfState | null> {
@@ -94,7 +97,15 @@ async function readAcfState(acfPath: string): Promise<AcfState | null> {
     fullyInstalled,
     installdir: readAcfString(content, 'installdir'),
     sizeOnDisk: readAcfNumber(content, 'SizeOnDisk'),
+    bytesToStage: readAcfNumber(content, 'BytesToStage'),
+    bytesToDownload: readAcfNumber(content, 'BytesToDownload'),
   };
+}
+
+/** First strictly-positive value, or null. */
+function firstPositive(...values: ReadonlyArray<number | null>): number | null {
+  for (const v of values) if (v !== null && v > 0) return v;
+  return null;
 }
 
 /** Recursively sums file sizes under `dir`. Unreadable entries are skipped; a missing dir → 0. */
@@ -125,12 +136,24 @@ async function dirSize(dir: string): Promise<number> {
  * compute it (missing installdir/SizeOnDisk, or empty folder). NOTE: for an UPDATE (folder already full)
  * this reads ~99% immediately, and if Steam preallocates files it can overshoot — accepted trade-off.
  */
-async function downloadProgress(lib: string, acf: AcfState): Promise<number | null> {
-  if (acf.installdir === null || acf.sizeOnDisk === null || acf.sizeOnDisk <= 0) return null;
-  const gameDir = path.join(lib, 'steamapps', 'common', acf.installdir);
-  const size = await dirSize(gameDir);
-  if (size <= 0) return null;
-  return Math.max(0, Math.min(0.99, size / acf.sizeOnDisk));
+async function downloadProgress(lib: string, appid: number, acf: AcfState): Promise<number | null> {
+  if (acf.installdir === null) return null;
+  // Live bytes-on-disk = what's already committed (common/<installdir>) PLUS what's still in the
+  // download staging area (downloading/<appid>). Steam moves data between the two as it commits chunks,
+  // so summing both gives a smooth, live numerator regardless of which holds the data right now.
+  const commonSize = await dirSize(path.join(lib, 'steamapps', 'common', acf.installdir));
+  const downloadingSize = await dirSize(path.join(lib, 'steamapps', 'downloading', String(appid)));
+  const have = commonSize + downloadingSize;
+  // Target: SizeOnDisk is the final installed size, but it can be 0 mid-install — fall back to the
+  // staging/network totals, which are populated while downloading.
+  const target = firstPositive(acf.sizeOnDisk, acf.bytesToStage, acf.bytesToDownload);
+  // Diagnostic dump (calibration): surfaces the real .acf values + folder sizes so we can verify the math.
+  log.info(
+    `[steam-progress] appid=${appid} have=${have} (common=${commonSize} downloading=${downloadingSize}) ` +
+      `sizeOnDisk=${acf.sizeOnDisk} bytesToStage=${acf.bytesToStage} bytesToDownload=${acf.bytesToDownload}`,
+  );
+  if (target === null || have <= 0) return null;
+  return Math.max(0, Math.min(0.99, have / target));
 }
 
 /**
@@ -151,7 +174,7 @@ export async function steamInstallStatus(appid: number): Promise<SteamInstallSta
       if (acf.fullyInstalled) return { state: 'installed' };
       // .acf exists but not fully installed → downloading/updating in this library. Compute a live
       // percent from the install folder size (the byte counters in .acf are not real-time).
-      downloading = { state: 'downloading', progress: await downloadProgress(lib, acf) };
+      downloading = { state: 'downloading', progress: await downloadProgress(lib, appid, acf) };
     }
     return downloading ?? { state: 'absent' };
   } catch (cause) {
