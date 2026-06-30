@@ -199,7 +199,8 @@ How it works:
   path — a visible wizard would let the user change the destination. The path is fed through each
   family's silent dir-key:
   - **`nsis`** → `/S /D=<dir>` (the `/D=` is unquoted and last, per NSIS rules);
-  - **`inno`** → `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="<dir>"`;
+  - **`inno`** → `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="<dir>"` — **GOG offline installers
+    are Inno Setup**, so GOG games use `"type": "inno"`;
   - **`custom`** → your own `args`, with the install dir substituted into the single `{dir}` token.
     You own the flags and quoting; the installer **must** support a silent + target-dir mode.
 - The installer **must** honour the supplied directory. If it ignores it (or fails), the game's
@@ -209,6 +210,37 @@ How it works:
   the args itself, so elevated is allowed there.
 - **MSI is out of scope** for now (its install-directory property name isn't standardized, so the
   path can't be controlled reliably).
+
+#### How to tell your installer's type
+
+Getting `type` right matters: NSIS and Inno take **different, mutually exclusive** silent flags, and
+they quote the target path differently (NSIS `/D=` is unquoted and last; Inno `/DIR="..."` is quoted),
+so the wrong type breaks paths with spaces (e.g. `%LOCALAPPDATA%` for a user named `John Doe`).
+
+- **GOG games** → always **`inno`**. GOG offline installers (`setup_<game>_*.exe`) are built with
+  Inno Setup.
+- **File properties** (right-click → Properties → Details): Inno often shows
+  `This installation was built with Inno Setup` in Comments; NSIS shows `Nullsoft Install System` (or
+  leaves the version fields blank).
+- **Open it with 7-Zip**: NSIS archives contain a `[NSIS].nsi` / NSIS script entries; Inno archives
+  show Inno's structure (`{app}`, embedded payload). A detector like **Detect It Easy (DiE)** names the
+  installer family outright.
+- **`setup.exe /?`**: Inno pops up a dialog listing `/SILENT`, `/VERYSILENT`, `/DIR=`, etc. — which
+  also confirms it supports the silent + target-dir mode Playhook needs.
+
+The most reliable check is to **dry-run the exact flags** Playhook will use and confirm the game lands
+in the target folder with no wizard window:
+
+```powershell
+# Inno (and GOG):
+.\setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\test\inno-check"
+
+# NSIS:
+.\setup.exe /S /D=C:\test\nsis-check
+```
+
+Installed silently into the folder → that's your type. A wizard appeared, or it installed elsewhere →
+it's the other type (or neither — use `custom`).
 
 To reinstall or update, delete `%LOCALAPPDATA%\playhook\games\<id>` manually and press Install again.
 Saves still sync to/from the card exactly as for a normal game (the `install` block is orthogonal to
