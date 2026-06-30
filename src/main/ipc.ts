@@ -35,7 +35,7 @@ import {
   type GameProcess,
 } from './game-launcher';
 import { findUninstallEntry, getSteamPath } from './registry';
-import { steamGameInstalled, openSteamUri } from './steam';
+import { steamInstallStatus, openSteamUri, type SteamInstallStatus } from './steam';
 import { log } from './logger';
 
 export interface ControllerDeps {
@@ -354,10 +354,11 @@ export class GameController {
   }
 
   /**
-   * One Steam re-detect tick: captures the current manifest's appid, checks Steam's .acf state, and —
-   * only if nothing changed across the await (same card, still ready+requiresInstall, no launch in
-   * flight) — flips the button to "Play" via enterReady(buildGameInfo). The post-await re-check guards
-   * against a card swap (pendingRoot) or a user action that happened while we awaited the FS read.
+   * One Steam re-detect tick: captures the current manifest's appid, reads Steam's .acf state, and —
+   * only if nothing changed across the await (same card, still ready+requiresInstall+steam, no launch in
+   * flight) — reflects it. On `installed` it flips the button to "Play" (full rebuild). While
+   * `downloading` it refreshes the "Installing… X%" progress on the SAME GameInfo (cheap — no hero
+   * re-read). The post-await re-check guards against a card swap (pendingRoot) or a user action.
    */
   private async steamInstallTick(): Promise<void> {
     this.steamInstallWatch = null; // this firing consumed the timer; we reschedule below if still needed
@@ -365,9 +366,9 @@ export class GameController {
     const appid = manifest?.steam?.appid;
     if (manifest === undefined || manifest === null || appid === undefined) return;
 
-    let installed = false;
+    let status: SteamInstallStatus = { state: 'absent' };
     try {
-      installed = await steamGameInstalled(appid);
+      status = await steamInstallStatus(appid);
     } catch (cause) {
       log.warn('[steam-watch] detect failed:', describe(cause));
     }
@@ -384,15 +385,22 @@ export class GameController {
       return; // stale — drop this result; enterReady already (re)set the poller for the new state
     }
 
-    if (installed) {
+    if (status.state === 'installed') {
       const stats = await this.deps.stats.read(manifest.raw.id);
       const info = await this.buildGameInfo(manifest, stats);
       log.info(`[steam-watch] appid=${appid} now installed — flipping to Play`);
       this.enterReady(info); // requiresInstall now false → poller stops inside enterReady
       return;
     }
-    // Still not installed → keep polling.
-    this.startSteamInstallWatch();
+
+    // Still installing (downloading) or not started (absent) → refresh the progress indicator on the
+    // same info without re-reading the hero image. Only push a state update when it actually changed.
+    const nextProgress = status.state === 'downloading' ? status.progress : undefined;
+    if (snapshot.game.steamDownloadProgress !== nextProgress) {
+      this.enterReady({ ...snapshot.game, steamDownloadProgress: nextProgress });
+    } else {
+      this.startSteamInstallWatch();
+    }
   }
 
   // ── Reaction to card insertion ───────────────────────────────────────────
@@ -929,11 +937,15 @@ export class GameController {
     let requiresInstall: boolean;
     let canUninstall: boolean;
     let installVia: 'steam' | undefined;
+    let steamDownloadProgress: number | null | undefined;
     if (manifest.steam !== undefined) {
       // Steam mode: "installed" is Steam's own .acf state; uninstall is managed in Steam (never here).
-      requiresInstall = !(await steamGameInstalled(manifest.steam.appid));
+      const status = await steamInstallStatus(manifest.steam.appid);
+      requiresInstall = status.state !== 'installed';
       canUninstall = false;
       installVia = 'steam';
+      // Non-blocking "Installing… X%": carry the download fraction (or null) only while downloading.
+      steamDownloadProgress = status.state === 'downloading' ? status.progress : undefined;
     } else if (manifest.install !== undefined) {
       // Card-install mode: installed ⇔ the resolved executable exists; that also enables Uninstall.
       const installed = await fse.pathExists(manifest.executablePath);
@@ -956,6 +968,7 @@ export class GameController {
       canUninstall,
       ...(manifest.install !== undefined ? { installDir: manifest.install.dir } : {}),
       ...(installVia !== undefined ? { installVia } : {}),
+      ...(steamDownloadProgress !== undefined ? { steamDownloadProgress } : {}),
       ...(heroImageDataUrl !== undefined ? { heroImageDataUrl } : {}),
     };
   }

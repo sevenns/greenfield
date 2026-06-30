@@ -217,6 +217,14 @@ export interface GameInfo {
    * game or a card-installer game. Lets the renderer pick the right confirm copy.
    */
   readonly installVia?: 'steam';
+  /**
+   * Steam mode only: a download/update is in progress. Present (with `requiresInstall` still true) ONLY
+   * while Steam is downloading — the value is the fraction 0..1 when Steam reports byte counts, or
+   * `null` when it hasn't reported them yet. Undefined means NOT downloading: either nothing started
+   * (→ "Install") or fully installed (→ "Play"). Drives a non-blocking "Installing… X%" indicator,
+   * NOT a blocking `installing` state (a Steam download can run for hours — the window stays usable).
+   */
+  readonly steamDownloadProgress?: number | null;
 }
 
 /** The flow state machine (discriminated union, section 4). */

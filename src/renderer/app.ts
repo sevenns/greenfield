@@ -115,9 +115,21 @@ function statusOf(state: AppState): string {
       return 'Running...';
     case 'syncing-out':
       return 'Saving progress...';
+    case 'ready': {
+      // Steam non-blocking install: show "Installing… X%" on the ready screen (the window stays usable).
+      const progress = state.game.steamDownloadProgress;
+      if (progress === undefined) return '';
+      return progress === null ? 'Installing...' : `Installing... ${Math.round(progress * 100)}%`;
+    }
     default:
       return '';
   }
+}
+
+// True while a Steam game is downloading: a non-blocking indicator on the (still) ready screen — the
+// busy visuals (loader + status + slid title) are reused via #app[data-installing], NOT the busy phase.
+function steamInstalling(state: AppState): boolean {
+  return state.kind === 'ready' && state.game.steamDownloadProgress !== undefined;
 }
 
 function gameOf(state: AppState): GameInfo | undefined {
@@ -215,6 +227,12 @@ function buildInfoPanel(game: GameInfo): void {
 
 // ── Title slide (left → right while busy) ───────────────────────────────────
 
+// The title slides right (making room for the status) while busy OR while a Steam download is showing
+// its non-blocking "Installing…" indicator on the ready screen.
+function shouldSlideTitle(): boolean {
+  return phaseOf(currentState) === 'busy' || steamInstalling(currentState);
+}
+
 let titleSlideRaf = 0;
 function applyTitleSlide(toRight: boolean): void {
   // Cancel any pending measure: otherwise a busy-state rAF can fire AFTER we've returned to 'ready'
@@ -230,7 +248,7 @@ function applyTitleSlide(toRight: boolean): void {
   // Measure after layout so scrollWidth/offsetLeft are correct.
   titleSlideRaf = requestAnimationFrame(() => {
     titleSlideRaf = 0;
-    if (phaseOf(currentState) !== 'busy') return; // state changed before the frame — don't slide
+    if (!shouldSlideTitle()) return; // state changed before the frame — don't slide
     const shift = barContent.clientWidth - titleEl.scrollWidth - titleEl.offsetLeft;
     titleEl.style.setProperty('--title-x', `${Math.max(0, Math.round(shift))}px`);
   });
@@ -370,8 +388,14 @@ function render(state: AppState): void {
     infoButton.classList.remove('has-uninstall-sibling');
   }
 
+  // Steam non-blocking install indicator: reuse the busy visuals (loader/status/slid title) via a
+  // dedicated attribute, while the logical phase stays 'ready' (window hideable, card pullable).
+  const installing = steamInstalling(state);
+  if (installing) app.dataset['installing'] = 'steam';
+  else delete app.dataset['installing'];
+
   statusEl.textContent = statusOf(state);
-  applyTitleSlide(phase === 'busy');
+  applyTitleSlide(phase === 'busy' || installing);
 
   // Popups only make sense on the ready screen; force-close them on any other state. (A failed
   // launch returns to 'ready' first, then opens the error popup — so it survives this.) closeConfirm
@@ -482,9 +506,12 @@ function activateConfirm(): void {
 // User-initiated actions (shared by mouse clicks and gamepad A/B) — each plays its sound.
 function triggerPlay(): void {
   if (!focusActive()) return;
+  const game = gameOf(currentState);
+  // Steam download already running (button shows the loader / "Installing…") → ignore re-presses.
+  if (game?.steamDownloadProgress !== undefined) return;
   // Install mode (button reads "Install"): confirm first and show the destination path. main still
   // decides install vs launch from requiresInstall, so the confirmed request goes through requestLaunch.
-  if (gameOf(currentState)?.requiresInstall === true) {
+  if (game?.requiresInstall === true) {
     audio.play('button');
     openConfirm('install');
     return;
@@ -625,7 +652,7 @@ document.addEventListener('visibilitychange', () => syncMusic());
 
 gamepad.start();
 
-// Re-measure the title slide on resize while busy (keeps right-alignment correct).
+// Re-measure the title slide on resize while busy / steam-installing (keeps right-alignment correct).
 window.addEventListener('resize', () => {
-  if (phaseOf(currentState) === 'busy') applyTitleSlide(true);
+  if (shouldSlideTitle()) applyTitleSlide(true);
 });

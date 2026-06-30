@@ -324,10 +324,13 @@ body {
 /* While busy (launch / install flow) neither action icon shows — the loader takes over. Declared
    after the data-action swap so it wins at equal specificity. */
 #app[data-phase='busy'] .icon-play,
-#app[data-phase='busy'] .icon-install {
+#app[data-phase='busy'] .icon-install,
+#app[data-installing='steam'] .icon-play,
+#app[data-installing='steam'] .icon-install {
   display: none;
 }
-#app[data-phase='busy'] .loader {
+#app[data-phase='busy'] .loader,
+#app[data-installing='steam'] .loader {
   display: block;
 }
 
@@ -365,8 +368,10 @@ body {
   transition: opacity 0.3s ease;
 }
 
-/* Status fades in only after the title has slid to the right. */
-#app[data-phase='busy'] .status {
+/* Status fades in only after the title has slid to the right (busy flow, and the Steam non-blocking
+   "Installing… X%" indicator which stays on the ready screen). */
+#app[data-phase='busy'] .status,
+#app[data-installing='steam'] .status {
   opacity: 1;
   transition-delay: 0.35s;
 }

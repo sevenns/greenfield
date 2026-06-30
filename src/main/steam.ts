@@ -17,6 +17,18 @@ import { log } from './logger';
 const STATE_FULLY_INSTALLED = 4;
 
 /**
+ * Where a Steam app stands locally, derived from its `.acf`:
+ * - `installed`   — fully installed (StateFlags bit 4), ready to launch.
+ * - `downloading` — an `.acf` exists but not fully installed (downloading/updating). `progress` is the
+ *   0..1 fraction when Steam reports byte counts, or `null` when it hasn't yet.
+ * - `absent`      — no `.acf` (nothing started), Steam not found, or any error.
+ */
+export type SteamInstallStatus =
+  | { readonly state: 'installed' }
+  | { readonly state: 'downloading'; readonly progress: number | null }
+  | { readonly state: 'absent' };
+
+/**
  * Collects the Steam library roots: the default `<steamPath>/steamapps` plus every `"path"` listed in
  * `libraryfolders.vdf`. Robust (not naive): matches ALL `"path"` entries and unescapes VDF's `\\` → `\`.
  * The default library is always included even when the VDF is missing/unreadable.
@@ -42,39 +54,62 @@ async function steamLibraryDirs(steamPath: string): Promise<readonly string[]> {
   return [...dirs];
 }
 
-/** True if the appmanifest at `acfPath` reports the app as fully installed. Any error → false. */
-async function acfFullyInstalled(acfPath: string): Promise<boolean> {
+/** Reads a numeric `"<key>" "<n>"` value from .acf content. null if missing or unparsable. */
+function readAcfNumber(content: string, key: string): number | null {
+  const match = new RegExp(`"${key}"\\s+"(\\d+)"`).exec(content);
+  if (match?.[1] === undefined) return null;
+  const value = Number.parseInt(match[1], 10);
+  return Number.isNaN(value) ? null : value;
+}
+
+/** Download fraction (0..1) from BytesDownloaded/BytesToDownload, or null when not reported yet. */
+function acfProgress(content: string): number | null {
+  const downloaded = readAcfNumber(content, 'BytesDownloaded');
+  const toDownload = readAcfNumber(content, 'BytesToDownload');
+  if (downloaded === null || toDownload === null || toDownload <= 0) return null;
+  return Math.max(0, Math.min(1, downloaded / toDownload));
+}
+
+/** Per-library .acf reading: the install state plus a download fraction. null if the .acf is absent. */
+type AcfState = { readonly fullyInstalled: boolean; readonly progress: number | null };
+
+async function readAcfState(acfPath: string): Promise<AcfState | null> {
   let content: string;
   try {
     content = await fse.readFile(acfPath, 'utf8');
   } catch {
-    return false;
+    return null; // no .acf in this library
   }
-  const match = /"StateFlags"\s+"(\d+)"/.exec(content);
-  if (match?.[1] === undefined) return false;
-  const flags = Number.parseInt(match[1], 10);
-  if (Number.isNaN(flags)) return false;
-  return (flags & STATE_FULLY_INSTALLED) === STATE_FULLY_INSTALLED;
+  const flags = readAcfNumber(content, 'StateFlags');
+  if (flags === null) return null;
+  const fullyInstalled = (flags & STATE_FULLY_INSTALLED) === STATE_FULLY_INSTALLED;
+  // Progress only matters while not fully installed; skip the byte read once installed.
+  return { fullyInstalled, progress: fullyInstalled ? null : acfProgress(content) };
 }
 
 /**
- * Whether the given Steam app is FULLY installed on this PC (per Steam's .acf state). Walks every Steam
- * library for `appmanifest_<appid>.acf` and checks StateFlags. Best-effort: Steam not found, no manifest,
- * "downloading" state, or any error → false. Windows-only (off-Windows getSteamPath is null ⇒ false).
+ * Where the given Steam app stands locally (per Steam's own .acf state), walking every Steam library for
+ * `appmanifest_<appid>.acf`. Best-effort: Steam not found, no manifest, or any error → `absent`.
+ * Windows-only (off-Windows getSteamPath is null ⇒ `absent`).
  */
-export async function steamGameInstalled(appid: number): Promise<boolean> {
+export async function steamInstallStatus(appid: number): Promise<SteamInstallStatus> {
   try {
     const steamPath = await getSteamPath();
-    if (steamPath === null) return false;
+    if (steamPath === null) return { state: 'absent' };
     const libs = await steamLibraryDirs(steamPath);
+    let downloading: SteamInstallStatus | null = null;
     for (const lib of libs) {
       const acfPath = path.join(lib, 'steamapps', `appmanifest_${appid}.acf`);
-      if (await acfFullyInstalled(acfPath)) return true;
+      const acf = await readAcfState(acfPath);
+      if (acf === null) continue;
+      if (acf.fullyInstalled) return { state: 'installed' };
+      // .acf exists but not fully installed → downloading/updating in this library.
+      downloading = { state: 'downloading', progress: acf.progress };
     }
-    return false;
+    return downloading ?? { state: 'absent' };
   } catch (cause) {
     log.warn('[steam] install check failed:', cause instanceof Error ? cause.message : String(cause));
-    return false;
+    return { state: 'absent' };
   }
 }
 
