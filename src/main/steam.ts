@@ -20,12 +20,14 @@ const STATE_FULLY_INSTALLED = 4;
  * Where a Steam app stands locally, derived from its `.acf`:
  * - `installed`   — fully installed (StateFlags bit 4), ready to launch.
  * - `downloading` — an `.acf` exists but not fully installed (downloading/updating). No live percent is
- *   available from the files (see AcfState) — the UI shows a plain "Installing…".
+ *   available WHILE ACTIVE (see AcfState), so the UI shows a plain "Installing…". `paused` is true when
+ *   the download is suspended; `progress` (0..1) is the snapshot percent — set ONLY when paused, because
+ *   that's the only time Steam's byte counters in the .acf are fresh.
  * - `absent`      — no `.acf` (nothing started), Steam not found, or any error.
  */
 export type SteamInstallStatus =
   | { readonly state: 'installed' }
-  | { readonly state: 'downloading' }
+  | { readonly state: 'downloading'; readonly paused: boolean; readonly progress: number | null }
   | { readonly state: 'absent' };
 
 /**
@@ -63,14 +65,33 @@ function readAcfNumber(content: string, key: string): number | null {
 }
 
 /**
- * Per-library .acf reading: just whether the app is fully installed. We do NOT report a download
- * percent: Steam has no reliable real-time progress in the files we can read — BytesDownloaded in the
- * .acf is flushed only on state changes (so it freezes mid-download), and the on-disk `downloading`
- * folder is PREALLOCATED to ~full size up front (so its size reads ~100% from the first second). The
- * accurate live percent lives only in the Steam client / Steamworks SDK. So the UI shows a plain
- * "Installing…" with a spinner. null here means the .acf is absent.
+ * Per-library .acf reading: install state, pause state, and a snapshot percent. We do NOT report a LIVE
+ * percent while actively downloading: Steam has no reliable real-time progress in the files we can read —
+ * BytesDownloaded in the .acf is flushed only on state changes (so it freezes mid-download), and the
+ * on-disk `downloading` folder is PREALLOCATED to ~full size up front (so its size reads ~100% from the
+ * first second). The accurate live percent lives only in the Steam client / Steamworks SDK.
+ *
+ * Pause detection: StateFlags is IDENTICAL while downloading vs paused (observed 1026 in both). The
+ * distinguishing field is `UpdateResult` (EResult of the last update step): 0 = none/in-progress and
+ * 1 = k_EResultOK both mean "fine/active", while >=2 (2 fail, 3/4/63 no-connection/retry, 10 busy, …)
+ * means the download isn't progressing. We can't tell a user pause from a transient network stall via
+ * the files — both land at >=2 — so we treat the whole >=2 range as "paused/stalled". On stop the byte
+ * counters ARE fresh, so we derive a snapshot percent there (staged progress, which tracks Steam's own
+ * displayed number best, with download progress as a fallback); the caller surfaces it only while
+ * paused. null here means the .acf is absent.
  */
-type AcfState = { readonly fullyInstalled: boolean };
+type AcfState = {
+  readonly fullyInstalled: boolean;
+  readonly paused: boolean;
+  /** Snapshot completion fraction 0..1 (staged ?? downloaded), or null if not computable. */
+  readonly progress: number | null;
+};
+
+/** num/den clamped to 0..1, or null when not computable. */
+function fraction(num: number | null, den: number | null): number | null {
+  if (num === null || den === null || den <= 0) return null;
+  return Math.max(0, Math.min(1, num / den));
+}
 
 async function readAcfState(acfPath: string): Promise<AcfState | null> {
   let content: string;
@@ -81,7 +102,17 @@ async function readAcfState(acfPath: string): Promise<AcfState | null> {
   }
   const flags = readAcfNumber(content, 'StateFlags');
   if (flags === null) return null;
-  return { fullyInstalled: (flags & STATE_FULLY_INSTALLED) === STATE_FULLY_INSTALLED };
+  // Staged progress matches Steam's displayed percent best; fall back to download progress.
+  const progress =
+    fraction(readAcfNumber(content, 'BytesStaged'), readAcfNumber(content, 'BytesToStage')) ??
+    fraction(readAcfNumber(content, 'BytesDownloaded'), readAcfNumber(content, 'BytesToDownload'));
+  // EResult: 0 (none/in-progress) and 1 (OK) are "active/fine"; >=2 means the download isn't moving.
+  const updateResult = readAcfNumber(content, 'UpdateResult') ?? 0;
+  return {
+    fullyInstalled: (flags & STATE_FULLY_INSTALLED) === STATE_FULLY_INSTALLED,
+    paused: updateResult >= 2,
+    progress,
+  };
 }
 
 /**
@@ -100,8 +131,9 @@ export async function steamInstallStatus(appid: number): Promise<SteamInstallSta
       const acf = await readAcfState(acfPath);
       if (acf === null) continue;
       if (acf.fullyInstalled) return { state: 'installed' };
-      // .acf exists but not fully installed → downloading/updating in this library.
-      downloading = { state: 'downloading' };
+      // .acf exists but not fully installed → downloading/updating in this library. The percent is only
+      // trustworthy when paused (byte counters are stale while actively downloading).
+      downloading = { state: 'downloading', paused: acf.paused, progress: acf.paused ? acf.progress : null };
     }
     return downloading ?? { state: 'absent' };
   } catch (cause) {

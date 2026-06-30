@@ -319,6 +319,7 @@ export class GameController {
     ipcMain.on(IPC.actionLaunch, () => void this.onLaunchRequested());
     ipcMain.on(IPC.actionUninstall, () => void this.onUninstallRequested());
     ipcMain.on(IPC.actionHide, () => this.deps.window.hide());
+    ipcMain.on(IPC.actionOpenSteamDownloads, () => void this.onOpenSteamDownloads());
   }
 
   /** Sends a transient error to the renderer to surface in the error popup. */
@@ -408,6 +409,9 @@ export class GameController {
       let requiresInstall = status.state !== 'installed';
       let canUninstall = status.state === 'installed';
       const steamInstalling = status.state === 'downloading';
+      const steamPaused = status.state === 'downloading' && status.paused;
+      const steamPausedProgress =
+        status.state === 'downloading' ? (status.progress ?? undefined) : undefined;
       let steamUninstalling = false;
 
       // A requested steam://uninstall is in flight for this game.
@@ -434,14 +438,24 @@ export class GameController {
         prev.requiresInstall !== requiresInstall ||
         prev.canUninstall !== canUninstall ||
         (prev.steamInstalling ?? false) !== steamInstalling ||
+        (prev.steamPaused ?? false) !== steamPaused ||
+        prev.steamPausedProgress !== steamPausedProgress ||
         (prev.steamUninstalling ?? false) !== steamUninstalling;
       if (changed) {
         if (!steamUninstalling) {
           log.info(
-            `[steam-watch] appid=${appid} state=${status.state} → requiresInstall=${requiresInstall} canUninstall=${canUninstall}`,
+            `[steam-watch] appid=${appid} state=${status.state}${steamPaused ? ' (paused)' : ''} → requiresInstall=${requiresInstall} canUninstall=${canUninstall}`,
           );
         }
-        this.enterReady({ ...prev, requiresInstall, canUninstall, steamInstalling, steamUninstalling });
+        this.enterReady({
+          ...prev,
+          requiresInstall,
+          canUninstall,
+          steamInstalling,
+          steamPaused,
+          steamPausedProgress,
+          steamUninstalling,
+        });
       }
     } finally {
       this.steamTickInFlight = false;
@@ -626,6 +640,19 @@ export class GameController {
    * stay on the `ready` ("Play"/"Uninstall") screen; the background poller flips the button back to
    * "Install" once Steam removes the .acf. Pre-checks getSteamPath (I8).
    */
+  /**
+   * Opens Steam's Downloads page (steam://open/downloads). Triggered by the Play button while a Steam
+   * download is in progress (its loader is otherwise a no-op) so the user can pause/resume in Steam —
+   * we can't control Steam's downloads programmatically (no URI/API for pause/resume).
+   */
+  private async onOpenSteamDownloads(): Promise<void> {
+    try {
+      await openSteamUri('steam://open/downloads');
+    } catch (cause) {
+      this.sendError(`failed to open Steam downloads: ${describe(cause)}`);
+    }
+  }
+
   private async runSteamUninstall(manifest: ResolvedManifest, info: GameInfo): Promise<void> {
     const appid = manifest.steam?.appid;
     if (appid === undefined) return; // defensive: onUninstallRequested only calls this in steam mode
@@ -1034,6 +1061,8 @@ export class GameController {
     let canUninstall: boolean;
     let installVia: 'steam' | undefined;
     let steamInstalling = false;
+    let steamPaused = false;
+    let steamPausedProgress: number | undefined;
     if (manifest.steam !== undefined) {
       // Steam mode: "installed" is Steam's own .acf state; uninstall is managed in Steam (never here).
       const status = await steamInstallStatus(manifest.steam.appid);
@@ -1041,8 +1070,11 @@ export class GameController {
       // Steam uninstall is delegated to Steam (steam://uninstall) — available once installed.
       canUninstall = status.state === 'installed';
       installVia = 'steam';
-      // Non-blocking "Installing…" indicator while Steam is downloading (no percent — see types.ts).
+      // Non-blocking "Installing…" indicator while Steam is downloading (no live percent — see types.ts);
+      // `paused` flips it to "Installing paused on N%…" using the snapshot percent.
       steamInstalling = status.state === 'downloading';
+      steamPaused = status.state === 'downloading' && status.paused;
+      steamPausedProgress = status.state === 'downloading' ? (status.progress ?? undefined) : undefined;
     } else if (manifest.install !== undefined) {
       // Card-install mode: installed ⇔ the resolved executable exists; that also enables Uninstall.
       const installed = await fse.pathExists(manifest.executablePath);
@@ -1066,6 +1098,8 @@ export class GameController {
       ...(manifest.install !== undefined ? { installDir: manifest.install.dir } : {}),
       ...(installVia !== undefined ? { installVia } : {}),
       ...(steamInstalling ? { steamInstalling: true } : {}),
+      ...(steamPaused ? { steamPaused: true } : {}),
+      ...(steamPausedProgress !== undefined ? { steamPausedProgress } : {}),
       ...(heroImageDataUrl !== undefined ? { heroImageDataUrl } : {}),
     };
   }

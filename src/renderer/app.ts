@@ -120,7 +120,13 @@ function statusOf(state: AppState): string {
       // Steam non-blocking install/uninstall indicators on the ready screen (the window stays usable).
       // No install percent: Steam exposes no reliable live progress in the files we read (see main).
       if (state.game.steamUninstalling === true) return 'Uninstalling...';
-      if (state.game.steamInstalling === true) return 'Installing...';
+      if (state.game.steamInstalling === true) {
+        if (state.game.steamPaused !== true) return 'Installing...';
+        const progress = state.game.steamPausedProgress;
+        return progress === undefined
+          ? 'Installing paused...'
+          : `Installing paused on ${Math.round(progress * 100)}%...`;
+      }
       return '';
     }
     default:
@@ -427,6 +433,9 @@ const ALL_MAIN_BUTTONS: readonly HTMLButtonElement[] = [playButton, infoButton, 
 let focusIndex = 0;
 
 function mainFocusables(): readonly HTMLButtonElement[] {
+  // While a Steam install/uninstall indicator is up, the right-side buttons are hidden — keep only Play
+  // focusable/clickable (during a download its click opens Steam's Downloads page; see triggerPlay).
+  if (steamBusy(currentState)) return [playButton];
   return gameOf(currentState)?.canUninstall === true
     ? [playButton, infoButton, uninstallButton]
     : [playButton, infoButton];
@@ -436,15 +445,7 @@ function mainFocusables(): readonly HTMLButtonElement[] {
 // with confirmOpen this returns false, so triggerPlay/triggerInfo/moveFocus/activateFocused/mouseenter
 // (all guarded by focusActive) go quiet naturally while the modal is up (B1).
 function focusActive(): boolean {
-  // Steam install/uninstall hides the right-side buttons and shows a loader on Play, so the main focus
-  // group goes quiet too (mirrors how the busy phase disables it).
-  return (
-    phaseOf(currentState) === 'ready' &&
-    !steamBusy(currentState) &&
-    !infoOpen &&
-    !errorOpen &&
-    !confirmOpen
-  );
+  return phaseOf(currentState) === 'ready' && !infoOpen && !errorOpen && !confirmOpen;
 }
 
 function applyFocus(): void {
@@ -524,8 +525,15 @@ function activateConfirm(): void {
 function triggerPlay(): void {
   if (!focusActive()) return;
   const game = gameOf(currentState);
-  // Steam install/uninstall already running (button shows the loader) → ignore re-presses.
-  if (game?.steamInstalling === true || game?.steamUninstalling === true) return;
+  // Steam download in progress: the Play button shows a loader and can't launch — repurpose the click to
+  // open Steam's Downloads page, where the user can pause/resume (we can't control that programmatically).
+  if (game?.steamInstalling === true) {
+    audio.play('button');
+    window.api.openSteamDownloads();
+    return;
+  }
+  // Steam uninstall in progress (loader) → nothing useful to do, ignore the press.
+  if (game?.steamUninstalling === true) return;
   // Install mode (button reads "Install"): confirm first and show the destination path. main still
   // decides install vs launch from requiresInstall, so the confirmed request goes through requestLaunch.
   if (game?.requiresInstall === true) {

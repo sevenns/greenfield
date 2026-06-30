@@ -225,6 +225,17 @@ export interface GameInfo {
    */
   readonly steamInstalling?: boolean;
   /**
+   * Steam mode only: the in-progress download is PAUSED (Steam's `UpdateResult` is non-zero). Only
+   * meaningful together with `steamInstalling` — flips the indicator text to "Installing paused…".
+   */
+  readonly steamPaused?: boolean;
+  /**
+   * Steam mode only: completion fraction (0..1) captured at pause. Steam's byte counters are only fresh
+   * while paused, so this is present ONLY with `steamPaused` (and may still be absent if uncomputable) —
+   * renders as "Installing paused on N%…".
+   */
+  readonly steamPausedProgress?: number;
+  /**
    * Steam mode only: a Steam uninstall we requested is in progress. Drives a non-blocking
    * "Uninstalling…" indicator (no percentage — removal isn't a download). Set optimistically right
    * after opening `steam://uninstall`; cleared when Steam drops the `.acf` (→ "Install") or, if the
@@ -257,6 +268,9 @@ export const IPC = {
   actionUninstall: 'action:uninstall',
   /** renderer → main: hide the launcher window to the tray (the "Hide" button on the empty screen). */
   actionHide: 'action:hide',
+  /** renderer → main: open Steam's Downloads page (steam://open/downloads) — used by the Play button
+   * while a Steam download is in progress, so the user can pause/resume it in Steam itself. */
+  actionOpenSteamDownloads: 'action:open-steam-downloads',
   /** main → renderer: a transient error to surface in the error popup (e.g. a failed launch). */
   errorShow: 'error:show',
   /** main → renderer: audio assets for the current game (or null when no card). */
@@ -274,6 +288,8 @@ export interface RendererApi {
   requestLaunch(): void;
   requestUninstall(): void;
   requestHide(): void;
+  /** Open Steam's Downloads page so the user can pause/resume a Steam download from Steam itself. */
+  openSteamDownloads(): void;
   onError(callback: (message: string) => void): void;
   onAudioUpdate(callback: (assets: AudioAssets | null) => void): void;
   requestAudio(): Promise<AudioAssets | null>;
