@@ -22,6 +22,10 @@ const CHANNELS = {
   settingsRequest: 'settings:request',
   settingsSetAutoUpdate: 'settings:set-auto-update',
   settingsSetTheme: 'settings:set-theme',
+  settingsSetPrerelease: 'settings:set-prerelease',
+  settingsSetSummonHotkey: 'settings:set-summon-hotkey',
+  settingsSetMusicVolume: 'settings:set-music-volume',
+  settingsSetSfxVolume: 'settings:set-sfx-volume',
   titleBarOverlayUpdate: 'settings:titlebar-overlay',
   appVersionRequest: 'app:version',
   appIconRequest: 'app:icon',
@@ -44,6 +48,18 @@ const api: SettingsApi = {
   },
   setTheme(mode: ThemeMode): void {
     ipcRenderer.send(CHANNELS.settingsSetTheme, mode);
+  },
+  setPrerelease(on: boolean): void {
+    ipcRenderer.send(CHANNELS.settingsSetPrerelease, on);
+  },
+  setSummonHotkey(on: boolean): void {
+    ipcRenderer.send(CHANNELS.settingsSetSummonHotkey, on);
+  },
+  setMusicVolume(volume: number): void {
+    ipcRenderer.send(CHANNELS.settingsSetMusicVolume, volume);
+  },
+  setSfxVolume(volume: number): void {
+    ipcRenderer.send(CHANNELS.settingsSetSfxVolume, volume);
   },
   setTitleBarDark(dark: boolean): void {
     ipcRenderer.send(CHANNELS.titleBarOverlayUpdate, dark);

@@ -53,6 +53,10 @@
             <label slot="label" for="au-off">Off (check manually)</label>
           </fluent-field>
         </fluent-radio-group>
+        <fluent-field label-position="after">
+          <fluent-switch slot="input" id="prerelease"></fluent-switch>
+          <label slot="label" for="prerelease">Receive pre-release (beta) updates</label>
+        </fluent-field>
       </section>
 
       <!-- Appearance / theme -->
@@ -72,6 +76,34 @@
             <label slot="label" for="theme-dark">Dark</label>
           </fluent-field>
         </fluent-radio-group>
+      </section>
+
+      <!-- General -->
+      <section class="section">
+        <fluent-text weight="semibold" size="500" block>General</fluent-text>
+        <fluent-field label-position="after">
+          <fluent-switch slot="input" id="summon-hotkey"></fluent-switch>
+          <label slot="label" for="summon-hotkey">Summon the launcher with a gamepad shortcut</label>
+        </fluent-field>
+        <fluent-text appearance="secondary" size="200" block>
+          Press <b>Start + Back</b> (Menu + View) on your gamepad at any time to bring the launcher to
+          the front.
+        </fluent-text>
+      </section>
+
+      <!-- Audio -->
+      <section class="section">
+        <fluent-text weight="semibold" size="500" block>Audio</fluent-text>
+        <div class="slider-row">
+          <label for="music-volume">Music volume</label>
+          <fluent-slider id="music-volume" min="0" max="100" step="1"></fluent-slider>
+          <span id="music-volume-value" class="slider-value"></span>
+        </div>
+        <div class="slider-row">
+          <label for="sfx-volume">UI sounds volume</label>
+          <fluent-slider id="sfx-volume" min="0" max="100" step="1"></fluent-slider>
+          <span id="sfx-volume-value" class="slider-value"></span>
+        </div>
       </section>
 
       <!-- Advanced: rarely-needed maintenance actions (moved out of the tray). -->

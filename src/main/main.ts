@@ -16,6 +16,7 @@ import { GlobalGamepad } from './gamepad-global';
 import { createTray } from './tray';
 import { UpdaterService } from './updater';
 import { SettingsWindow } from './settings-window';
+import { IPC } from '../shared/types';
 
 let trayRef: Tray | null = null;
 let controllerRef: GameController | null = null;
@@ -23,6 +24,9 @@ let windowRef: GameWindow | null = null;
 let settingsWindowRef: SettingsWindow | null = null;
 let globalGamepadRef: GlobalGamepad | null = null;
 let quitting = false;
+// Whether the global Start+Back summon chord is active (mirrors AppSettings.summonHotkeyEnabled, toggled
+// live from the settings window). Read inside the chord callback so a toggle takes effect immediately.
+let summonHotkeyEnabled = true;
 
 function configureAutoLaunch(): void {
   // openAtLogin is reliable for an NSIS install; portable is best-effort (R6).
@@ -70,6 +74,7 @@ async function bootstrap(): Promise<void> {
   await store.init();
 
   const settings = new AppSettingsStore(app.getPath('userData'));
+  summonHotkeyEnabled = (await settings.read()).summonHotkeyEnabled;
 
   const state = new StateManager();
   const window = new GameWindow();
@@ -97,6 +102,13 @@ async function bootstrap(): Promise<void> {
     },
     openLogs,
     openGamesFolder,
+    onSummonHotkeyChanged: (enabled) => {
+      summonHotkeyEnabled = enabled;
+    },
+    onVolumesChanged: (volumes) => {
+      const bw = window.browserWindow;
+      if (bw !== null && !bw.isDestroyed()) bw.webContents.send(IPC.volumeUpdate, volumes);
+    },
   });
   const settingsWindow = new SettingsWindow(updater);
   settingsWindowRef = settingsWindow;
@@ -117,6 +129,7 @@ async function bootstrap(): Promise<void> {
   const globalGamepad = new GlobalGamepad();
   globalGamepadRef = globalGamepad;
   globalGamepad.onChord(() => {
+    if (!summonHotkeyEnabled) return; // toggled off in the settings window
     if (state.get().kind === 'running') return;
     window.showAndFocus(true);
   });

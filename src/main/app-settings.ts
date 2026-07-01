@@ -11,9 +11,13 @@ import { type AppSettings, type AutoUpdateMode, type ThemeMode } from '../shared
 const settingsSchema = z.object({
   schemaVersion: z.literal(1),
   autoUpdate: z.enum(['download', 'download-install', 'off']),
-  // `.default` makes an older settings.json (written before the theme setting existed) migrate
-  // seamlessly: a file with autoUpdate but no theme parses fine and keeps its autoUpdate value.
+  // `.default` makes an older settings.json (written before a field existed) migrate seamlessly: a file
+  // missing the field parses fine and keeps its other values.
   theme: z.enum(['system', 'light', 'dark']).default('system'),
+  allowPrerelease: z.boolean().default(false),
+  summonHotkeyEnabled: z.boolean().default(true),
+  musicVolume: z.number().min(0).max(1).default(0.5),
+  sfxVolume: z.number().min(0).max(1).default(1),
 });
 
 // Default preserves the pre-settings behaviour (silent download + install on next quit), so the
@@ -22,6 +26,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   autoUpdate: 'download-install',
   theme: 'system',
+  allowPrerelease: false,
+  summonHotkeyEnabled: true,
+  musicVolume: 0.5,
+  sfxVolume: 1,
 };
 
 export class AppSettingsStore {
@@ -47,19 +55,19 @@ export class AppSettingsStore {
     await fse.writeJson(this.settingsPath, next, { spaces: 2 });
   }
 
-  /** Persists a new auto-update mode, keeping the rest of the settings intact. */
-  async setAutoUpdate(mode: AutoUpdateMode): Promise<AppSettings> {
+  /** Merges a partial change into the current settings and persists the result. */
+  async patch(partial: Partial<Omit<AppSettings, 'schemaVersion'>>): Promise<AppSettings> {
     const current = await this.read();
-    const next: AppSettings = { ...current, autoUpdate: mode };
+    const next: AppSettings = { ...current, ...partial };
     await this.write(next);
     return next;
   }
 
-  /** Persists a new UI theme, keeping the rest of the settings intact. */
-  async setTheme(mode: ThemeMode): Promise<AppSettings> {
-    const current = await this.read();
-    const next: AppSettings = { ...current, theme: mode };
-    await this.write(next);
-    return next;
+  setAutoUpdate(mode: AutoUpdateMode): Promise<AppSettings> {
+    return this.patch({ autoUpdate: mode });
+  }
+
+  setTheme(mode: ThemeMode): Promise<AppSettings> {
+    return this.patch({ theme: mode });
   }
 }

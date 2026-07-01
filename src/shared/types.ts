@@ -303,6 +303,20 @@ export interface AppSettings {
   readonly schemaVersion: 1;
   readonly autoUpdate: AutoUpdateMode;
   readonly theme: ThemeMode;
+  /** Receive pre-release (beta) updates. Default false → the stable channel only. */
+  readonly allowPrerelease: boolean;
+  /** Enable the global Start+Back gamepad chord that summons the launcher. Default true. */
+  readonly summonHotkeyEnabled: boolean;
+  /** Launcher background-music volume, 0..1. Default 0.5. */
+  readonly musicVolume: number;
+  /** Launcher UI sound-effects volume, 0..1. Default 1. */
+  readonly sfxVolume: number;
+}
+
+/** Launcher audio volumes (0..1), applied in the game renderer's AudioController. */
+export interface AudioVolumes {
+  readonly music: number;
+  readonly sfx: number;
 }
 
 /** IPC channels (the preload typed bridge). */
@@ -332,6 +346,10 @@ export const IPC = {
   heroRequest: 'hero:request',
   /** renderer → main: request the fallback wallpaper data URL (for the idle / empty screen). */
   wallpaperRequest: 'wallpaper:request',
+  /** game-renderer → main (invoke): request the current audio volumes (on window startup). */
+  volumeRequest: 'volume:request',
+  /** main → game-renderer: updated audio volumes (pushed when changed in the settings window). */
+  volumeUpdate: 'volume:update',
 
   // ── Settings window: updates + app settings (separate namespace from the game channels) ──
   /** main → settings-renderer: the current UpdateStatus snapshot (pushed on every change). */
@@ -350,6 +368,14 @@ export const IPC = {
   settingsSetAutoUpdate: 'settings:set-auto-update',
   /** settings-renderer → main: change the UI theme (payload ThemeMode). */
   settingsSetTheme: 'settings:set-theme',
+  /** settings-renderer → main: toggle pre-release (beta) updates (payload boolean). */
+  settingsSetPrerelease: 'settings:set-prerelease',
+  /** settings-renderer → main: toggle the Start+Back summon hotkey (payload boolean). */
+  settingsSetSummonHotkey: 'settings:set-summon-hotkey',
+  /** settings-renderer → main: set the background-music volume 0..1 (payload number). */
+  settingsSetMusicVolume: 'settings:set-music-volume',
+  /** settings-renderer → main: set the UI sound-effects volume 0..1 (payload number). */
+  settingsSetSfxVolume: 'settings:set-sfx-volume',
   /** settings-renderer → main (invoke): request the app version string. */
   appVersionRequest: 'app:version',
   /** settings-renderer → main (invoke): request the app icon as a data URL (for the custom title bar). */
@@ -377,6 +403,10 @@ export interface RendererApi {
   onHeroUpdate(callback: (assets: HeroAssets | null) => void): void;
   requestHero(): Promise<HeroAssets | null>;
   requestWallpaper(): Promise<string | null>;
+  /** Current launcher audio volumes (on window startup). */
+  requestVolumes(): Promise<AudioVolumes>;
+  /** Live audio-volume updates, pushed when changed in the settings window. */
+  onVolumesUpdate(callback: (volumes: AudioVolumes) => void): void;
 }
 
 /** API that the settings preload exposes on `window.settingsApi` (separate from the game `api`). */
@@ -386,6 +416,10 @@ export interface SettingsApi {
   getSettings(): Promise<AppSettings>;
   setAutoUpdate(mode: AutoUpdateMode): void;
   setTheme(mode: ThemeMode): void;
+  setPrerelease(on: boolean): void;
+  setSummonHotkey(on: boolean): void;
+  setMusicVolume(volume: number): void;
+  setSfxVolume(volume: number): void;
   /** Tell main to recolor the native caption buttons to match the effective (dark/light) theme. */
   setTitleBarDark(dark: boolean): void;
   openLogs(): void;

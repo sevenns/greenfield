@@ -77,6 +77,30 @@ fluent-radio-group {
   gap: 8px;
 }
 
+/* Slider row: label + live value on the first line, the slider spanning full width below it. */
+.slider-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+
+.slider-row > label {
+  grid-column: 1;
+}
+
+.slider-value {
+  grid-column: 2;
+  justify-self: end;
+  color: var(--colorNeutralForeground2, #adadad);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-row > fluent-slider {
+  grid-column: 1 / -1;
+}
+
 #update-action {
   align-self: flex-start;
 }

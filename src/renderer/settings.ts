@@ -10,6 +10,8 @@ import '@fluentui/web-components/button/define.js';
 import '@fluentui/web-components/field/define.js';
 import '@fluentui/web-components/radio/define.js';
 import '@fluentui/web-components/radio-group/define.js';
+import '@fluentui/web-components/switch/define.js';
+import '@fluentui/web-components/slider/define.js';
 import '@fluentui/web-components/progress-bar/define.js';
 import { setTheme } from '@fluentui/web-components';
 import { webDarkTheme, webLightTheme } from '@fluentui/tokens';
@@ -61,6 +63,12 @@ const progressEl = req('update-progress');
 const actionBtn = req('update-action');
 const radioGroup = req('auto-update');
 const themeGroup = req('theme');
+const prereleaseSwitch = req('prerelease');
+const summonSwitch = req('summon-hotkey');
+const musicSlider = req('music-volume');
+const musicValue = req('music-volume-value');
+const sfxSlider = req('sfx-volume');
+const sfxValue = req('sfx-volume-value');
 const openLogsBtn = req('open-logs');
 const openGamesBtn = req('open-games');
 
@@ -83,6 +91,42 @@ function readThemeValue(el: HTMLElement): ThemeMode | null {
 
 function setGroupValue(el: HTMLElement, value: string): void {
   (el as HTMLElement & { value?: string }).value = value;
+}
+
+// fluent-switch exposes a `checked` property; fluent-slider a numeric `valueAsNumber` / string `value`.
+// Narrow casts (never `any`) keep these typed without importing the element classes.
+function readChecked(el: HTMLElement): boolean {
+  return (el as HTMLElement & { checked?: boolean }).checked === true;
+}
+
+function setChecked(el: HTMLElement, checked: boolean): void {
+  (el as HTMLElement & { checked?: boolean }).checked = checked;
+}
+
+function readSliderPercent(el: HTMLElement): number {
+  const value = (el as HTMLElement & { valueAsNumber?: number }).valueAsNumber;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function setSliderPercent(el: HTMLElement, percent: number): void {
+  (el as HTMLElement & { value?: string }).value = String(percent);
+}
+
+// Wires a volume slider: updates the live "N%" label on every input, and persists the 0..1 volume on
+// change (drag-commit) via `persist`.
+function wireVolumeSlider(
+  slider: HTMLElement,
+  valueEl: HTMLElement,
+  persist: (volume: number) => void,
+): void {
+  const showValue = (): void => {
+    valueEl.textContent = `${readSliderPercent(slider)}%`;
+  };
+  slider.addEventListener('input', showValue);
+  slider.addEventListener('change', () => {
+    showValue();
+    persist(readSliderPercent(slider) / 100);
+  });
 }
 
 // The context-dependent primary button action for the current status (null = the button is disabled
@@ -158,6 +202,17 @@ themeGroup.addEventListener('change', () => {
   }
 });
 
+prereleaseSwitch.addEventListener('change', () => {
+  window.settingsApi.setPrerelease(readChecked(prereleaseSwitch));
+});
+
+summonSwitch.addEventListener('change', () => {
+  window.settingsApi.setSummonHotkey(readChecked(summonSwitch));
+});
+
+wireVolumeSlider(musicSlider, musicValue, (v) => window.settingsApi.setMusicVolume(v));
+wireVolumeSlider(sfxSlider, sfxValue, (v) => window.settingsApi.setSfxVolume(v));
+
 openLogsBtn.addEventListener('click', () => window.settingsApi.openLogs());
 openGamesBtn.addEventListener('click', () => window.settingsApi.openGamesFolder());
 
@@ -176,6 +231,14 @@ async function init(): Promise<void> {
   titlebarVersion.textContent = `(${version})`;
   setGroupValue(radioGroup, settings.autoUpdate);
   setGroupValue(themeGroup, settings.theme);
+  setChecked(prereleaseSwitch, settings.allowPrerelease);
+  setChecked(summonSwitch, settings.summonHotkeyEnabled);
+  const musicPercent = Math.round(settings.musicVolume * 100);
+  const sfxPercent = Math.round(settings.sfxVolume * 100);
+  setSliderPercent(musicSlider, musicPercent);
+  setSliderPercent(sfxSlider, sfxPercent);
+  musicValue.textContent = `${musicPercent}%`;
+  sfxValue.textContent = `${sfxPercent}%`;
   applyTheme(settings.theme);
   render(status);
 }

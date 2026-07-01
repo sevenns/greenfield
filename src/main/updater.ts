@@ -29,7 +29,13 @@ import fs from 'node:fs/promises';
 import { app, type BrowserWindow } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { log } from './logger';
-import { IPC, type AutoUpdateMode, type ThemeMode, type UpdateStatus } from '../shared/types';
+import {
+  IPC,
+  type AudioVolumes,
+  type AutoUpdateMode,
+  type ThemeMode,
+  type UpdateStatus,
+} from '../shared/types';
 import { type AppSettingsStore } from './app-settings';
 import { ipcMain } from 'electron';
 
@@ -45,6 +51,10 @@ export interface UpdaterDeps {
   readonly openLogs: () => void;
   /** Opens the games install folder in the OS file manager (settings window "Open games folder"). */
   readonly openGamesFolder: () => void;
+  /** Applies the Start+Back summon-hotkey toggle to the running global gamepad listener. */
+  readonly onSummonHotkeyChanged: (enabled: boolean) => void;
+  /** Pushes new audio volumes to the game renderer so they apply live. */
+  readonly onVolumesChanged: (volumes: AudioVolumes) => void;
 }
 
 export class UpdaterService {
@@ -82,6 +92,9 @@ export class UpdaterService {
 
     this.subscribe();
     const settings = await this.deps.settings.read();
+    // Pre-release channel: on an alpha build electron-updater defaults allowPrerelease to true; make it
+    // explicit from the persisted setting (default false → stable only).
+    autoUpdater.allowPrerelease = settings.allowPrerelease;
     this.applyMode(settings.autoUpdate);
     if (settings.autoUpdate !== 'off') this.backgroundCheck();
   }
@@ -125,12 +138,47 @@ export class UpdaterService {
         .setTheme(mode)
         .catch((cause: unknown) => log.error('[updater] failed to persist theme:', cause));
     });
+    ipcMain.on(IPC.settingsSetPrerelease, (_event, on: boolean) => {
+      void this.deps.settings
+        .patch({ allowPrerelease: on })
+        .then(() => {
+          if (app.isPackaged) autoUpdater.allowPrerelease = on;
+        })
+        .catch((cause: unknown) => log.error('[updater] failed to persist prerelease flag:', cause));
+    });
+    ipcMain.on(IPC.settingsSetSummonHotkey, (_event, on: boolean) => {
+      void this.deps.settings
+        .patch({ summonHotkeyEnabled: on })
+        .then(() => this.deps.onSummonHotkeyChanged(on))
+        .catch((cause: unknown) => log.error('[updater] failed to persist summon hotkey:', cause));
+    });
+    ipcMain.on(IPC.settingsSetMusicVolume, (_event, volume: number) => {
+      void this.setVolume({ musicVolume: volume });
+    });
+    ipcMain.on(IPC.settingsSetSfxVolume, (_event, volume: number) => {
+      void this.setVolume({ sfxVolume: volume });
+    });
+    // game-renderer startup: hand it the current volumes to seed its AudioController.
+    ipcMain.handle(IPC.volumeRequest, async (): Promise<AudioVolumes> => {
+      const settings = await this.deps.settings.read();
+      return { music: settings.musicVolume, sfx: settings.sfxVolume };
+    });
     ipcMain.handle(IPC.appVersionRequest, (): string => app.getVersion());
     ipcMain.handle(IPC.appIconRequest, (): Promise<string> => this.readIconDataUrl());
     // Imperative maintenance actions — the logic (paths, shell) lives in main.ts callbacks; registered
     // here only to keep every settings-window channel in one place (avoids a duplicate handler).
     ipcMain.on(IPC.openLogs, () => this.deps.openLogs());
     ipcMain.on(IPC.openGamesFolder, () => this.deps.openGamesFolder());
+  }
+
+  // Persists a volume change and pushes the full volume pair to the game renderer so it applies live.
+  private async setVolume(partial: { musicVolume?: number } | { sfxVolume?: number }): Promise<void> {
+    try {
+      const next = await this.deps.settings.patch(partial);
+      this.deps.onVolumesChanged({ music: next.musicVolume, sfx: next.sfxVolume });
+    } catch (cause) {
+      log.error('[updater] failed to persist volume:', cause);
+    }
   }
 
   // The settings window shows the app icon in its custom title bar. CSP there is `img-src data:`, so we
