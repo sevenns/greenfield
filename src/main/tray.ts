@@ -18,7 +18,7 @@ export function createTray(callbacks: TrayCallbacks): Tray {
   const tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Show', click: () => callbacks.onShow() },
+    { label: 'Show launcher', click: () => callbacks.onShow() },
     { label: 'Settings', click: () => callbacks.onOpenSettings() },
     { type: 'separator' },
     { label: 'Quit', click: () => callbacks.onQuit() },
